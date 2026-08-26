@@ -24,7 +24,7 @@ $ConfigFile = Join-Path $HermesDir "config.yaml"
 $RunDir   = (Get-Location).Path
 $InfoFile = Join-Path $RunDir "dashboard-info.txt"
 
-$TotalSteps = 6
+$TotalSteps = 7
 $CurrentStep = 0
 
 # ---- Pretty console helpers --------------------------------------------------------
@@ -266,6 +266,7 @@ Check-Port 'OmniRoute' $PORT_OMNIROUTE
 
 # 7. Write the final dashboard/credentials info file --------------------------------
 function Write-DashboardInfo {
+    Step-Header "Writing Dashboard Links & Credentials"
     $lines = @()
     $lines += "Hermes Stack - Dashboard Links & Credentials"
     $lines += "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
@@ -288,6 +289,7 @@ function Write-DashboardInfo {
     $lines += "  CLI   : hermes"
 
     Set-Content -Path $InfoFile -Value $lines -Encoding UTF8
+    Log-Success "Dashboard info written to $InfoFile"
 }
 
 # Execution Pipeline ------------------------------------------------------------------

@@ -37,6 +37,12 @@ for arg in "$@"; do
     esac
 done
 
+TOTAL_STEPS=7
+CURRENT_STEP=0
+
+# Directory the user actually invoked the installer from (before any `cd`).
+RUN_DIR="$(pwd)"
+
 banner() {
     clear 2>/dev/null || true
     echo -e "${CYAN}${BOLD}"
@@ -48,6 +54,14 @@ banner() {
     echo "  ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝"
     echo -e "   🚀 Automated Full-Stack AI Agent & Gateway Installer${NC}"
     echo -e "   Hermes Agent • Hermes WebUI • 9Router • OmniRoute\n"
+}
+
+step_header() {
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+    echo ""
+    echo -e "${BLUE}${BOLD}┌──[ ${CYAN}Step ${CURRENT_STEP}/${TOTAL_STEPS}${BLUE} ]───────────────────────────────────────────────────────┐${NC}"
+    echo -e "${BLUE}${BOLD}│ ${PURPLE}$1${NC}"
+    echo -e "${BLUE}${BOLD}└──────────────────────────────────────────────────────────────────┘${NC}"
 }
 
 log_info() {
@@ -64,6 +78,17 @@ log_warn() {
 
 log_error() {
     echo -e "${RED}[✖]${NC} $1"
+}
+
+# Generate a random API key without relying on any single tool being present.
+generate_api_key() {
+    if command -v openssl &>/dev/null; then
+        echo "sk-$(openssl rand -hex 16)"
+    elif [ -r /dev/urandom ]; then
+        echo "sk-$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    else
+        echo "sk-$(date +%s%N)$$"
+    fi
 }
 
 ask_prompt() {
@@ -112,7 +137,7 @@ detect_system() {
 
 # 2. Package Manager & Prerequisites
 install_prerequisites() {
-    log_info "Checking and installing prerequisites..."
+    step_header "Checking System Prerequisites"
 
     if [ "$SYS_TYPE" = "macos" ]; then
         if ! command -v brew &>/dev/null; then
@@ -176,7 +201,7 @@ install_prerequisites() {
 
 # 3. Handle Hermes Agent Installation
 install_hermes_agent() {
-    log_info "Checking Hermes Agent..."
+    step_header "Installing Hermes Agent (Autonomous CLI Core)"
     local HERMES_EXISTS=false
     if command -v hermes &>/dev/null; then
         HERMES_EXISTS=true
@@ -199,7 +224,7 @@ install_hermes_agent() {
 
 # 4. Handle 9Router Installation
 install_9router() {
-    log_info "Checking 9Router..."
+    step_header "Installing 9Router (AI Gateway - Port $PORT_9ROUTER)"
     local NINE_EXISTS=false
     if command -v 9router &>/dev/null; then
         NINE_EXISTS=true
@@ -221,7 +246,7 @@ install_9router() {
 
 # 5. Handle OmniRoute / omnirouter Installation
 install_omniroute() {
-    log_info "Checking OmniRoute (omnirouter)..."
+    step_header "Installing OmniRoute (Multi-Model Router - Port $PORT_OMNIROUTE)"
     local OMNI_EXISTS=false
     if command -v omniroute &>/dev/null || command -v omnirouter &>/dev/null; then
         OMNI_EXISTS=true
@@ -243,7 +268,7 @@ install_omniroute() {
 
 # 6. Handle Hermes WebUI Installation
 install_hermes_webui() {
-    log_info "Checking Hermes WebUI..."
+    step_header "Installing Hermes WebUI (Web Dashboard - Port $PORT_WEBUI)"
     log_info "Installing / Updating Hermes WebUI..."
     curl -fsSL https://raw.githubusercontent.com/m4tinbeigi-official/hermes-webui-installer/main/install.sh | bash || true
     log_success "Hermes WebUI ready on port $PORT_WEBUI."
@@ -251,7 +276,7 @@ install_hermes_webui() {
 
 # 7. Bridge & Connect All Components
 configure_connections() {
-    log_info "Configuring network bridges and connecting services..."
+    step_header "Connecting Services & Generating Management Scripts"
 
     local HERMES_CONFIG_DIR="$HOME/.hermes"
     local HERMES_CONFIG_FILE="$HERMES_CONFIG_DIR/config.yaml"
@@ -259,12 +284,13 @@ configure_connections() {
 
     # Configure custom endpoints in Hermes Agent config if needed
     if [ ! -f "$HERMES_CONFIG_FILE" ]; then
+        API_KEY="$(generate_api_key)"
         cat <<EOF > "$HERMES_CONFIG_FILE"
 model:
   default: custom:gemini-2.5-flash
   provider: custom
   base_url: http://127.0.0.1:$PORT_9ROUTER/v1
-  api_key: sk-dummy-key
+  api_key: $API_KEY
 agent:
   max_turns: 90
 terminal:
@@ -274,6 +300,7 @@ EOF
         log_success "Created default Hermes Agent configuration mapped to 9Router ($PORT_9ROUTER)."
     else
         log_info "Existing config.yaml found at $HERMES_CONFIG_FILE."
+        API_KEY="$(grep -E '^\s*api_key:' "$HERMES_CONFIG_FILE" | head -n1 | sed -E 's/^\s*api_key:\s*//')"
     fi
 
     # Create launch scripts in user bin / scripts directory
@@ -360,6 +387,37 @@ EOF
     log_success "Management scripts created at $STACK_DIR."
 }
 
+# 8. Write the final dashboard/credentials info file, next to where the user ran the script
+write_dashboard_info() {
+    step_header "Writing Dashboard Links & Credentials"
+
+    local info_file="$RUN_DIR/dashboard-info.txt"
+
+    {
+        echo "Hermes Stack - Dashboard Links & Credentials"
+        echo "Generated: $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "=============================================="
+        echo ""
+        echo "Hermes WebUI : http://127.0.0.1:$PORT_WEBUI"
+        echo "9Router API  : http://127.0.0.1:$PORT_9ROUTER"
+        echo "OmniRoute API: http://127.0.0.1:$PORT_OMNIROUTE"
+        echo ""
+        if [ -n "${API_KEY:-}" ]; then
+            echo "Hermes Agent API key (used to authenticate against 9Router): $API_KEY"
+        else
+            echo "No password/API key was found or generated for these services."
+        fi
+        echo ""
+        echo "Management:"
+        echo "  Start : \$HOME/.hermes-stack/start.sh  (or hermes-stack-start)"
+        echo "  Stop  : \$HOME/.hermes-stack/stop.sh   (or hermes-stack-stop)"
+        echo "  Status: \$HOME/.hermes-stack/status.sh (or hermes-stack-status)"
+        echo "  CLI   : hermes"
+    } > "$info_file"
+
+    log_success "Dashboard info written to $info_file"
+}
+
 # Execution Pipeline
 main() {
     banner
@@ -370,18 +428,24 @@ main() {
     install_omniroute
     install_hermes_webui
     configure_connections
+    write_dashboard_info
 
     echo -e "\n${GREEN}${BOLD}════════════════════════════════════════════════════════════════${NC}"
-    echo -e "${GREEN}${BOLD}  🎉 Hermes Full Stack Installation & Setup Complete!${NC}"
+    echo -e "${GREEN}${BOLD}  🎉 HERMES FULL STACK INSTALLATION COMPLETE${NC}"
     echo -e "${GREEN}${BOLD}════════════════════════════════════════════════════════════════${NC}"
     echo -e "  ${BOLD}Hermes WebUI:${NC}   ${CYAN}http://127.0.0.1:$PORT_WEBUI${NC}"
     echo -e "  ${BOLD}9Router API:${NC}    ${CYAN}http://127.0.0.1:$PORT_9ROUTER${NC}"
     echo -e "  ${BOLD}OmniRoute API:${NC}  ${CYAN}http://127.0.0.1:$PORT_OMNIROUTE${NC}"
+    if [ -n "${API_KEY:-}" ]; then
+        echo -e "  ${BOLD}API Key:${NC}        ${YELLOW}$API_KEY${NC}"
+    fi
     echo -e "\n  ${BOLD}Commands:${NC}"
     echo -e "  - Start Stack:  ${YELLOW}~/.hermes-stack/start.sh${NC} (or hermes-stack-start)"
     echo -e "  - Stop Stack:   ${YELLOW}~/.hermes-stack/stop.sh${NC} (or hermes-stack-stop)"
     echo -e "  - Status:       ${YELLOW}~/.hermes-stack/status.sh${NC} (or hermes-stack-status)"
-    echo -e "  - CLI Agent:    ${YELLOW}hermes${NC}\n"
+    echo -e "  - CLI Agent:    ${YELLOW}hermes${NC}"
+    echo -e "\n  ${BOLD}All links and credentials saved to:${NC}"
+    echo -e "  ${PURPLE}$RUN_DIR/dashboard-info.txt${NC}\n"
 }
 
 main "$@"
